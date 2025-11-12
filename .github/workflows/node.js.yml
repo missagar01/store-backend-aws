@@ -7,7 +7,6 @@ on:
 
 jobs:
   deploy:
-    # Use your EC2 self-hosted GitHub Actions runner
     runs-on: self-hosted
 
     steps:
@@ -21,28 +20,45 @@ jobs:
           cache: 'npm'
 
       - name: 📦 Install dependencies
-        run: npm install
+        run: npm ci
 
-      - name: 🧪 Build project (optional)
+      - name: 🧪 Build (if exists)
         run: |
-          if [ -f package.json ] && grep -q "\"build\"" package.json; then
+          if jq -e '.scripts.build' package.json > /dev/null; then
             npm run build
+          else
+            echo "No build script. Skipping."
           fi
 
-      - name: 🚀 Deploy / Restart app with PM2
+      - name: 🚀 Deploy with PM2
+        shell: bash
         run: |
-          # Install PM2 globally if not present
-          if ! command -v pm2 &> /dev/null
-          then
-            sudo npm install -g pm2
+          set -e
+
+          # Ensure PM2 present
+          if ! command -v pm2 >/dev/null 2>&1; then
+            sudo npm i -g pm2
           fi
 
-          # Stop previous process if exists
+          # Stop if running (do not fail if not found)
           pm2 stop backend || true
 
-          # Start backend (update path if needed)
+          # Start (or reload if ecosystem later)
           pm2 start src/server.js --name backend
 
-          # Save PM2 process list & enable startup
-          pm2 save
-          pm2 startup systemd -u ubuntu --hp /home/ubuntu
+          # Save current process list (non-fatal if unchanged)
+          pm2 save || true
+
+          # --- FIRST-RUN ONLY (make pm2 boot on reboot) ---
+          # Try to detect existing systemd unit to avoid failing every run
+          if ! systemctl status pm2-ubuntu >/dev/null 2>&1; then
+            # Build a PATH that includes the Actions Node toolchain
+            NODE_BIN_DIR="$(dirname "$(which node)")"
+            # Use sudo + PATH as pm2 suggests; don't fail the job if it prints guidance
+            sudo env PATH="$PATH:$NODE_BIN_DIR" pm2 startup systemd -u ubuntu --hp /home/ubuntu || true
+            # Enable service if just created
+            sudo systemctl enable pm2-ubuntu || true
+          fi
+
+          # Show status for debugging
+          pm2 status
