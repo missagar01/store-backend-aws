@@ -6,12 +6,13 @@ export function initOracleClient() {
     const isWindows = os.platform() === "win32";
 
     if (isWindows) {
-      // Local Windows (Thick Mode)
+      // Local Windows (for development)
       oracledb.initOracleClient({ libDir: "C:\\oracle\\instantclient_23_9" });
       console.log("🪟 Oracle client initialized (Thick mode on Windows)");
     } else {
-      // Render/Linux (Thin Mode)
-      console.log("🐧 Using Thin mode (no Oracle client needed on Render)");
+      // Linux (EC2 / Ubuntu)
+      oracledb.initOracleClient({ libDir: "/home/ubuntu/oracle_client/instantclient_23_26" });
+      console.log("🐧 Oracle client initialized (Thick mode on Linux)");
     }
   } catch (err) {
     console.error("❌ Failed to initialize Oracle client:", err);
