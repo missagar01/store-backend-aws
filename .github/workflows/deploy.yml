@@ -25,7 +25,7 @@ jobs:
       - name: Rsync files to EC2
         uses: burnett01/rsync-deployments@6.0.0
         with:
-          switches: -avz --delete --exclude '.git' --exclude 'node_modules' --exclude '.env' --exclude 'dist' --exclude 'build'
+          switches: "-avz --delete --exclude '.git' --exclude 'node_modules' --exclude '.env' --exclude 'dist' --exclude 'build'"
           path: ./
           remote_path: ${{ secrets.APP_DIR }}/
           remote_host: ${{ secrets.EC2_HOST }}
@@ -33,24 +33,19 @@ jobs:
           remote_key: ${{ secrets.EC2_KEY }}
 
       - name: Write .env on server (from GitHub Secrets)
-        if: ${{ always() }}  # leave it; no-op if no secrets provided
+        if: ${{ secrets.ENV_FILE != '' }}
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_KEY }}
           script: |
-            if [ ! -z "${{ secrets.ENV_FILE }}" ]; then
-              mkdir -p ${{ secrets.APP_DIR }}
-              cat > ${{ secrets.APP_DIR }}/.env << 'EOF'
+            mkdir -p "${{ secrets.APP_DIR }}"
+            cat > "${{ secrets.APP_DIR }}/.env" << 'EOF'
 ${{ secrets.ENV_FILE }}
 EOF
-              echo ".env written"
-            else
-              echo "ENV_FILE secret not set; skipping .env write"
-            fi
 
-      - name: Install production deps & restart PM2
+      - name: Install deps & restart PM2
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -58,7 +53,7 @@ EOF
           key: ${{ secrets.EC2_KEY }}
           script: |
             set -e
-            cd ${{ secrets.APP_DIR }}
+            cd "${{ secrets.APP_DIR }}"
             npm ci --omit=dev
             pm2 startOrReload ecosystem.config.js || pm2 start ecosystem.config.js
             pm2 save
