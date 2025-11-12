@@ -1,0 +1,43 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Store Backend API",
+    "version": "1.0.0",
+    "description": "API documentation for authentication and related endpoints"
+  },
+  "servers": [
+    { "url": "http://localhost:3002", "description": "Local 3002" },
+    { "url": "http://localhost:3004", "description": "Local 3004" }
+  ],
+  "paths": {
+    "/auth/login": {
+      "post": {
+        "summary": "Login using Supabase users table (user_name + employee_id + password)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "user_name": { "type": "string" },
+                  "employee_id": { "type": "string" },
+                  "password": { "type": "string" }
+                },
+                "required": ["user_name", "employee_id", "password"]
+              },
+              "example": { "user_name": "admin", "employee_id": "EMP001", "password": "admin1234" }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Successful login with JWT" },
+          "401": { "description": "Invalid credentials" }
+        }
+      }
+    }
+  },
+  "components": {}
+}
+
+

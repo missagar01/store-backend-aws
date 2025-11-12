@@ -1,0 +1,29 @@
+{
+  "name": "oracle-backend",
+  "version": "1.0.0",
+  "description": "Node.js + Express + OracleDB backend for Store project",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node ./src/server.js",
+    "dev": "nodemon --watch src ./src/server.js",
+    "main": "src/server.js"
+
+  },
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.78.0",
+    "compression": "^1.8.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "oracledb": "^6.9.0",
+    "redis": "^5.9.0",
+    "swagger-ui-express": "^5.0.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  }
+}

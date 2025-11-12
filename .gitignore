@@ -1,0 +1,62 @@
+# ============================================================
+# 🟢 Node.js + AWS Deploy Safe .gitignore
+# ============================================================
+
+# Node.js dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+
+# Oracle Instant Client (large files, never push)
+oracle_client/
+
+# Build output
+dist/
+build/
+out/
+coverage/
+
+# Logs
+logs/
+*.log
+debug.log
+error.log
+
+# System / OS files
+.DS_Store
+Thumbs.db
+
+# IDE / Editor configs
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# Temporary / cache files
+tmp/
+temp/
+.cache/
+*.tsbuildinfo
+
+# Optional lock files (keep only one if you use multiple)
+# yarn.lock
+# package-lock.json
+# pnpm-lock.yaml
+
+# ============================================================
+# Notes:
+# - oracle_client/ ignored (145 MB, not required for deploy)
+# - .env files ignored for security
+# - Build and logs are excluded (recreated on EC2)
+# ============================================================

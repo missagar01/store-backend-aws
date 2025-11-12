@@ -1,0 +1,15 @@
+version: 0.0
+os: linux
+files:
+  - source: /
+    destination: /var/www/app
+    overwrite: true
+hooks:
+  AfterInstall:
+    - location: scripts/install.sh
+      timeout: 300
+      runas: deploy
+  ApplicationStart:
+    - location: scripts/restart.sh
+      timeout: 300
+      runas: deploy
