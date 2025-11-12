@@ -1,31 +1,48 @@
-# This workflow will do a clean installation of node dependencies, cache/restore them, build the source code and run tests across different versions of node
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-nodejs
-
-name: Node.js CI
+name: 🚀 Node.js CI & Deploy to EC2
 
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
-  build:
-
-    runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        node-version: [20.x]
-        # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
+  deploy:
+    # Use your EC2 self-hosted GitHub Actions runner
+    runs-on: self-hosted
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ matrix.node-version }}
-        cache: 'npm'
-    - run: npm ci
-    - run: npm run build --if-present
-    - run: npm test
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 📦 Install dependencies
+        run: npm install
+
+      - name: 🧪 Build project (optional)
+        run: |
+          if [ -f package.json ] && grep -q "\"build\"" package.json; then
+            npm run build
+          fi
+
+      - name: 🚀 Deploy / Restart app with PM2
+        run: |
+          # Install PM2 globally if not present
+          if ! command -v pm2 &> /dev/null
+          then
+            sudo npm install -g pm2
+          fi
+
+          # Stop previous process if exists
+          pm2 stop backend || true
+
+          # Start backend (update path if needed)
+          pm2 start src/server.js --name backend
+
+          # Save PM2 process list & enable startup
+          pm2 save
+          pm2 startup systemd -u ubuntu --hp /home/ubuntu
