@@ -3,38 +3,72 @@ import * as storeIndentService from "../services/storeIndent.service.js";
 export async function createStoreIndent(req, res) {
   try {
     const data = await storeIndentService.create(req.body);
-    res.json({ success: true, ...data });
+    return res.json({ success: true, ...data });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, error: err.message });
+    console.error("createStoreIndent error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: err.message || "Internal server error" });
   }
 }
 
 export async function approveStoreIndent(req, res) {
   try {
     await storeIndentService.approve(req.body);
-    res.json({ success: true, message: "Indent approved successfully" });
+    return res.json({
+      success: true,
+      message: "Indent approved successfully",
+    });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error("approveStoreIndent error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: err.message || "Internal server error" });
   }
 }
 
 export async function getPendingIndents(req, res) {
   try {
-    const data = await storeIndentService.getPending();
-    res.json(data);
+    const page = Number(req.query.page || 1);
+    const pageSize = Number(req.query.pageSize || 50);
+
+    const { rows, total, page: safePage, pageSize: safeSize } =
+      await storeIndentService.getPending(page, pageSize);
+
+    return res.json({
+      success: true,
+      page: safePage,
+      pageSize: safeSize,
+      total,
+      data: rows,
+    });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("getPendingIndents error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: err.message || "Internal server error" });
   }
 }
 
 export async function getHistory(req, res) {
   try {
-    const data = await storeIndentService.getHistory();
-    res.json(data);
+    const page = Number(req.query.page || 1);
+    const pageSize = Number(req.query.pageSize || 50);
+
+    const { rows, total, page: safePage, pageSize: safeSize } =
+      await storeIndentService.getHistory(page, pageSize);
+
+    return res.json({
+      success: true,
+      page: safePage,
+      pageSize: safeSize,
+      total,
+      data: rows,
+    });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    console.error("getHistory error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: err.message || "Internal server error" });
   }
 }
-
-

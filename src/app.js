@@ -10,29 +10,45 @@ import { fileURLToPath } from "url";
 dotenv.config();
 
 const app = express();
+
+// ✅ Middlewares
 app.use(express.json());
 app.use(cors());
 
-// ✅ Register routes
+// ✅ Main routes
 app.use("/", routes);
 
-// ✅ Swagger docs
-try {
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = path.dirname(__filename);
-  const specPath = path.join(__dirname, "docs", "openapi.json");
-  const openapi = JSON.parse(fs.readFileSync(specPath, "utf-8"));
+// ✅ Swagger setup (startup-only, no work per request)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const specPath = path.join(__dirname, "docs", "openapi.json");
+
+// ❌ NO TypeScript types here
+let openapi = null;
+
+if (fs.existsSync(specPath)) {
+  try {
+    const raw = fs.readFileSync(specPath, "utf-8");
+    openapi = JSON.parse(raw);
+  } catch (e) {
+    console.warn("⚠️ Failed to load Swagger spec:", e && e.message ? e.message : e);
+  }
+} else {
+  console.warn("⚠️ Swagger spec not found at:", specPath);
+}
+
+if (openapi) {
   app.get("/docs.json", (_req, res) => res.json(openapi));
   app.use("/docs", swaggerUi.serve, swaggerUi.setup(openapi));
   console.log("📘 Swagger UI available at /docs");
-} catch (e) {
-  console.warn("Swagger not initialized:", e?.message || e);
+} else {
+  // Optional: agar spec missing hai to yeh simple message
+  app.get("/docs", (_req, res) =>
+    res.status(503).json({
+      success: false,
+      message: "Swagger spec not available",
+    })
+  );
 }
 
 export default app;
-
-
-
-
-
-

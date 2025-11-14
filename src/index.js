@@ -2,21 +2,36 @@ import express from "express";
 import oracledb from "oracledb";
 import dotenv from "dotenv";
 import cors from "cors";
-import { supabase } from "../src/config/supabaseClient";
 
 dotenv.config();
+
+/* 🔧 Global Oracle settings – performance friendly */
+oracledb.outFormat = oracledb.OUT_FORMAT_OBJECT;
+oracledb.fetchArraySize = 1000;   // bigger fetch batch
+oracledb.prefetchRows = 1000;     // prefetch rows for faster streaming
+
+/* 🔧 Thick client (Windows) – keep as-is, or use ENV */
+if (!oracledb.thin) {
+  try {
+    oracledb.initOracleClient({
+      libDir: process.env.ORACLE_CLIENT_LIB_DIR || "C:\\oracle\\instantclient_23_9",
+    });
+    console.log("🪟 Oracle client initialized");
+  } catch (e) {
+    console.error("❌ Failed to init Oracle client:", e?.message || e);
+  }
+}
 
 const app = express();
 app.use(express.json());
 app.use(cors());
 
-
-oracledb.initOracleClient({ libDir: "C:\\oracle\\instantclient_23_9" });
-
 let pool;
 
-// Initialize Oracle connection pool
+/* ✅ Create pool once */
 async function initPool() {
+  if (pool) return pool;
+
   try {
     pool = await oracledb.createPool({
       user: process.env.ORACLE_USER,
@@ -25,184 +40,164 @@ async function initPool() {
       poolMin: 1,
       poolMax: 10,
       poolIncrement: 1,
-      connectTimeout: 10,   
-      queueTimeout: 10000, 
-      stmtCacheSize: 0
+      connectTimeout: 10,
+      queueTimeout: 10000,
+      stmtCacheSize: 0,
     });
     console.log("✅ Oracle connection pool started");
+    return pool;
   } catch (err) {
-    console.error("Pool init failed:", err);
+    console.error("❌ Pool init failed:", err);
     process.exit(1);
   }
 }
 
-// =======================
-// Fetch all students
+/* 🔁 Reusable helper: always get/release connection safely */
+async function withConnection(handler, resOnError = null) {
+  let conn;
+  try {
+    await initPool();
+    conn = await pool.getConnection();
+    return await handler(conn);
+  } catch (err) {
+    console.error("DB Error:", err);
+    if (resOnError) {
+      resOnError.status(500).json({ error: err.message });
+    }
+    throw err; // also rethrow if caller needs
+  } finally {
+    if (conn) {
+      try {
+        await conn.close();
+      } catch (e) {
+        console.error("Error closing connection:", e);
+      }
+    }
+  }
+}
+
+/* =======================
+   GET /users – ACCBAL_AUDIT
+   ======================= */
 app.get("/users", async (req, res) => {
   console.log("Fetching all students...");
-  let conn;
-  try {
-    conn = await pool.getConnection();
 
-    // ✅ 1. Check schema exists
-    const schemaCheck = await conn.execute(
-      `SELECT username FROM all_users WHERE username = :schemaName`,
-      { schemaName: 'SRMPLERP' },
-      { outFormat: oracledb.OUT_FORMAT_OBJECT }
-    );
+  await withConnection(
+    async (conn) => {
+      // 1️⃣ Schema check
+      const schemaName = "SRMPLERP";
 
-    if (schemaCheck.rows.length === 0) {
-      return res.status(404).json({ error: "Schema SRMPLERP does not exist" });
-    }
+      const schemaCheck = await conn.execute(
+        `SELECT username 
+           FROM all_users 
+          WHERE username = :schemaName`,
+        { schemaName },
+      );
 
-    console.log("Schema SRMPLERP exists ✅");
+      if (!schemaCheck.rows || schemaCheck.rows.length === 0) {
+        return res
+          .status(404)
+          .json({ error: `Schema ${schemaName} does not exist` });
+      }
 
-    // ✅ 2. Check table exists
-    const tableCheck = await conn.execute(
-      `SELECT table_name 
-         FROM all_tables 
-        WHERE owner = :schemaName 
-          AND table_name = :tableName`,
-      { schemaName: 'SRMPLERP', tableName: 'ACCBAL_AUDIT' },
-      { outFormat: oracledb.OUT_FORMAT_OBJECT }
-    );
+      console.log(`Schema ${schemaName} exists ✅`);
 
-    if (tableCheck.rows.length === 0) {
-      return res.status(404).json({ error: "Table ACCBAL_AUDIT does not exist in schema SRMPLERP" });
-    }
+      // 2️⃣ Table check
+      const tableName = "ACCBAL_AUDIT";
 
-    console.log("Table ACCBAL_AUDIT exists ✅");
+      const tableCheck = await conn.execute(
+        `SELECT table_name 
+           FROM all_tables 
+          WHERE owner = :schemaName 
+            AND table_name = :tableName`,
+        { schemaName, tableName },
+      );
 
-    // ✅ 3. Fetch data
-    const result = await conn.execute(
-      `SELECT * FROM SRMPLERP.ACCBAL_AUDIT`,
-      [],
-      { outFormat: oracledb.OUT_FORMAT_OBJECT }
-    );
+      if (!tableCheck.rows || tableCheck.rows.length === 0) {
+        return res.status(404).json({
+          error: `Table ${tableName} does not exist in schema ${schemaName}`,
+        });
+      }
 
-    console.log("Rows fetched:", result.rows.length);
-    res.json(result.rows);
+      console.log(`Table ${tableName} exists ✅`);
 
-  } catch (err) {
-    console.error("DB Error:", err);
-    res.status(500).json({ error: err.message });
-  } finally {
-    if (conn) await conn.close();
-  }
+      // 3️⃣ Fetch data – same as before
+      const result = await conn.execute(
+        `SELECT * FROM SRMPLERP.ACCBAL_AUDIT`
+      );
+
+      console.log("Rows fetched:", result.rows?.length || 0);
+      res.json(result.rows || []);
+    },
+    res
+  );
 });
 
-
-// Route to list all schemas and tables
+/* =======================
+   GET /schema – all schemas + tables
+   ======================= */
 app.get("/schema", async (req, res) => {
   console.log("Fetching all schemas and tables...");
-  let conn;
-  try {
-    conn = await pool.getConnection();
 
-    // 1️⃣ Get all schemas
-    const schemasResult = await conn.execute(
-      `SELECT username AS schema_name FROM all_users ORDER BY username`,
-      [],
-      { outFormat: oracledb.OUT_FORMAT_OBJECT }
-    );
-
-    const schemas = schemasResult.rows.map(r => r.SCHEMA_NAME);
-    console.log("Schemas found:", schemas.length);
-
-    // 2️⃣ Optional: Get tables for each schema (you can limit to a few for performance)
-    const schemaTables = {};
-
-    for (let schema of schemas) {
-      const tablesResult = await conn.execute(
-        `SELECT table_name FROM all_tables WHERE owner = :schema ORDER BY table_name`,
-        { schema },
-        { outFormat: oracledb.OUT_FORMAT_OBJECT }
+  await withConnection(
+    async (conn) => {
+      const schemasResult = await conn.execute(
+        `SELECT username AS schema_name
+           FROM all_users
+          ORDER BY username`
       );
-      schemaTables[schema] = tablesResult.rows.map(r => r.TABLE_NAME);
-    }
 
-    res.json({
-      totalSchemas: schemas.length,
-      schemas: schemaTables
-    });
+      const schemas =
+        (schemasResult.rows || []).map((r) => r.SCHEMA_NAME) || [];
+      console.log("Schemas found:", schemas.length);
 
-  } catch (err) {
-    console.error("DB Error:", err);
-    res.status(500).json({ error: err.message });
-  } finally {
-    if (conn) await conn.close();
-  }
+      const schemaTables = {};
+
+      for (const schema of schemas) {
+        const tablesResult = await conn.execute(
+          `SELECT table_name
+             FROM all_tables
+            WHERE owner = :schema
+            ORDER BY table_name`,
+          { schema }
+        );
+        schemaTables[schema] = (tablesResult.rows || []).map(
+          (r) => r.TABLE_NAME
+        );
+      }
+
+      res.json({
+        totalSchemas: schemas.length,
+        schemas: schemaTables,
+      });
+    },
+    res
+  );
 });
 
+/* =======================
+   GET /current-schema
+   ======================= */
 app.get("/current-schema", async (req, res) => {
-  let conn;
-  try {
-    conn = await pool.getConnection();
-    const result = await conn.execute(
-      `SELECT sys_context('USERENV','CURRENT_SCHEMA') AS schema_name FROM dual`
-    );
-    res.json(result.rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  } finally {
-    if (conn) await conn.close();
-  }
+  await withConnection(
+    async (conn) => {
+      const result = await conn.execute(
+        `SELECT sys_context('USERENV','CURRENT_SCHEMA') AS schema_name FROM dual`
+      );
+      res.json(result.rows || []);
+    },
+    res
+  );
 });
 
-
+/* =======================
+   POST /store-indent – insert
+   ======================= */
 app.post("/store-indent", async (req, res) => {
-  let conn;
-  try {
-    const {
-      timestamp,
-      indenterName,
-      department,
-      groupHead,
-      itemCode,
-      productName,
-      quantity,
-      uom,
-      specifications,
-      indentApprovedBy,
-      indentType,
-      attachment,
-    } = req.body;
-
-    conn = await pool.getConnection();
-
-    // 1️⃣ Fetch the last indent number
-    const result = await conn.execute(
-      `SELECT MAX(TO_NUMBER(REGEXP_SUBSTR(INDENT_NUMBER, '[0-9]+'))) AS LAST_NUM FROM STORE_INDENT`
-    );
-
-    const lastNum = result.rows[0][0] || 0;
-    const newNum = lastNum + 1;
-    const indentNumber = `SI-${String(newNum).padStart(4, '0')}`;
-
-    // 2️⃣ Insert with new indent number
-    await conn.execute(
-      `INSERT INTO STORE_INDENT 
-       (TIMESTAMP, INDENT_NUMBER, INDENTER_NAME, DEPARTMENT, GROUP_HEAD, 
-        ITEM_CODE, PRODUCT_NAME, QUANTITY, UOM, SPECIFICATIONS, 
-        INDENT_APPROVED_BY, INDENT_TYPE, ATTACHMENT)
-       VALUES (
-         TO_TIMESTAMP(:timestamp, 'YYYY-MM-DD"T"HH24:MI:SS.FF3"Z"'),
-         :indentNumber,
-         :indenterName,
-         :department,
-         :groupHead,
-         :itemCode,
-         :productName,
-         :quantity,
-         :uom,
-         :specifications,
-         :indentApprovedBy,
-         :indentType,
-         :attachment
-       )`,
-      {
+  await withConnection(
+    async (conn) => {
+      const {
         timestamp,
-        indentNumber,
         indenterName,
         department,
         groupHead,
@@ -214,112 +209,160 @@ app.post("/store-indent", async (req, res) => {
         indentApprovedBy,
         indentType,
         attachment,
-      },
-      { autoCommit: true }
-    );
+      } = req.body;
 
-    res.json({ success: true, message: "Indent saved successfully", indentNumber });
-  } catch (err) {
-    console.error("Error inserting indent:", err);
-    res.status(500).json({ success: false, error: err.message });
-  } finally {
-    if (conn) await conn.close();
-  }
+      // 1️⃣ Get last indent number
+      const result = await conn.execute(
+        `SELECT MAX(TO_NUMBER(REGEXP_SUBSTR(INDENT_NUMBER, '[0-9]+'))) AS LAST_NUM 
+           FROM STORE_INDENT`
+      );
+
+      const lastNum =
+        (result.rows && result.rows[0] && result.rows[0].LAST_NUM) || 0;
+      const newNum = lastNum + 1;
+      const indentNumber = `SI-${String(newNum).padStart(4, "0")}`;
+
+      // 2️⃣ Insert
+      await conn.execute(
+        `INSERT INTO STORE_INDENT 
+         (TIMESTAMP, INDENT_NUMBER, INDENTER_NAME, DEPARTMENT, GROUP_HEAD, 
+          ITEM_CODE, PRODUCT_NAME, QUANTITY, UOM, SPECIFICATIONS, 
+          INDENT_APPROVED_BY, INDENT_TYPE, ATTACHMENT)
+         VALUES (
+           TO_TIMESTAMP(:timestamp, 'YYYY-MM-DD"T"HH24:MI:SS.FF3"Z"'),
+           :indentNumber,
+           :indenterName,
+           :department,
+           :groupHead,
+           :itemCode,
+           :productName,
+           :quantity,
+           :uom,
+           :specifications,
+           :indentApprovedBy,
+           :indentType,
+           :attachment
+         )`,
+        {
+          timestamp,
+          indentNumber,
+          indenterName,
+          department,
+          groupHead,
+          itemCode,
+          productName,
+          quantity,
+          uom,
+          specifications,
+          indentApprovedBy,
+          indentType,
+          attachment,
+        },
+        { autoCommit: true }
+      );
+
+      res.json({
+        success: true,
+        message: "Indent saved successfully",
+        indentNumber,
+      });
+    },
+    res
+  );
 });
 
-
+/* =======================
+   PUT /store-indent/approve – update
+   ======================= */
 app.put("/store-indent/approve", async (req, res) => {
-  let conn;
-  try {
-    const { indentNumber, itemCode, vendorType, approvedQuantity } = req.body;
+  await withConnection(
+    async (conn) => {
+      const { indentNumber, itemCode, vendorType, approvedQuantity } = req.body;
 
-    conn = await pool.getConnection();
-    const result = await conn.execute(
-      `UPDATE STORE_INDENT
-          SET VENDOR_TYPE = :vendorType,
-              APPROVED_QUANTITY = :approvedQuantity,
-              ACTUAL_1 = SYSDATE
-        WHERE INDENT_NUMBER = :indentNumber
-          AND ITEM_CODE = :itemCode`,
-      { indentNumber, itemCode, vendorType, approvedQuantity },
-      { autoCommit: true }
-    );
+      await conn.execute(
+        `UPDATE STORE_INDENT
+            SET VENDOR_TYPE       = :vendorType,
+                APPROVED_QUANTITY = :approvedQuantity,
+                ACTUAL_1          = SYSDATE
+          WHERE INDENT_NUMBER = :indentNumber
+            AND ITEM_CODE     = :itemCode`,
+        { indentNumber, itemCode, vendorType, approvedQuantity },
+        { autoCommit: true }
+      );
 
-    res.json({ success: true, message: "Indent approved successfully" });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  } finally {
-    if (conn) await conn.close();
-  }
+      res.json({
+        success: true,
+        message: "Indent approved successfully",
+      });
+    },
+    res
+  );
 });
 
-
+/* =======================
+   GET /store-indent/pending
+   ======================= */
 app.get("/store-indent/pending", async (req, res) => {
-  let conn;
-  try {
-    conn = await pool.getConnection();
-    const result = await conn.execute(
-      `SELECT * FROM STORE_INDENT 
-        WHERE PLANNED_1 IS NOT NULL 
-          AND ACTUAL_1 IS NULL`,
-      [],
-      { outFormat: oracledb.OUT_FORMAT_OBJECT }
-    );
-    res.json(result.rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  } finally {
-    if (conn) await conn.close();
-  }
+  await withConnection(
+    async (conn) => {
+      const result = await conn.execute(
+        `SELECT * 
+           FROM STORE_INDENT 
+          WHERE PLANNED_1 IS NOT NULL 
+            AND ACTUAL_1  IS NULL`
+      );
+      res.json(result.rows || []);
+    },
+    res
+  );
 });
 
-
+/* =======================
+   GET /store-indent/history
+   ======================= */
 app.get("/store-indent/history", async (req, res) => {
-  let conn;
-  try {
-    conn = await pool.getConnection();
-    const result = await conn.execute(
-      `SELECT * FROM STORE_INDENT 
-        WHERE PLANNED_1 IS NOT NULL 
-          AND ACTUAL_1 IS NOT NULL`,
-      [],
-      { outFormat: oracledb.OUT_FORMAT_OBJECT }
-    );
-    res.json(result.rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  } finally {
-    if (conn) await conn.close();
-  }
+  await withConnection(
+    async (conn) => {
+      const result = await conn.execute(
+        `SELECT * 
+           FROM STORE_INDENT 
+          WHERE PLANNED_1 IS NOT NULL 
+            AND ACTUAL_1  IS NOT NULL`
+      );
+      res.json(result.rows || []);
+    },
+    res
+  );
 });
 
-
-
+/* =======================
+   GET /tables – SRMPLERP tables
+   ======================= */
 app.get("/tables", async (req, res) => {
-  let conn;
-  try {
-    conn = await pool.getConnection();
-    const result = await conn.execute(
-      `SELECT table_name 
-         FROM all_tables 
-        WHERE owner = :owner
-        ORDER BY table_name`,
-      ["SRMPLERP"],
-      { outFormat: oracledb.OUT_FORMAT_OBJECT }
-    );
-    res.json(result.rows);
-  } catch (err) {
-    console.error("DB Error:", err);
-    res.status(500).json({ error: err.message });
-  } finally {
-    if (conn) await conn.close();
-  }
+  await withConnection(
+    async (conn) => {
+      const owner = "SRMPLERP";
+      const result = await conn.execute(
+        `SELECT table_name 
+           FROM all_tables 
+          WHERE owner = :owner
+          ORDER BY table_name`,
+        { owner }
+      );
+      res.json(result.rows || []);
+    },
+    res
+  );
 });
 
-
-// Start server
+/* =======================
+   Start server
+   ======================= */
 const port = 3000;
-app.listen(port, async () => {
+
+(async () => {
   await initPool();
-  console.log(`🚀 Server running at http://localhost:${port}`);
-});
+  app.listen(port, () => {
+    console.log(`🚀 Server running at http://localhost:${port}`);
+  });
+})();

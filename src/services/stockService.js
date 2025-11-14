@@ -1,11 +1,41 @@
 // src/services/stockService.js
 import { getConnection } from "../config/db.js";
 
+// 🔹 Simple in-memory cache: key = "fromDate|toDate"
+const stockCache = new Map();
+/**
+ * Cache TTL – 5 minutes (ms)
+ */
+const CACHE_TTL_MS = 5 * 60 * 1000;
+
+function makeCacheKey(fromDate, toDate) {
+  return `${fromDate}|${toDate}`;
+}
+
+function isCacheValid(entry) {
+  if (!entry) return false;
+  const now = Date.now();
+  return now - entry.cachedAt <= CACHE_TTL_MS;
+}
+
+/**
+ * ⚙️ Fetch item stock from Oracle for a given date range.
+ * - SAME business logic
+ * - No pagination here (pure data fetch)
+ * - Uses in-memory cache to avoid hitting Oracle again & again
+ */
 export async function fetchItemStock(fromDate, toDate) {
+  const cacheKey = makeCacheKey(fromDate, toDate);
+  const cached = stockCache.get(cacheKey);
+
+  // ✅ If cache valid → return from memory (super fast)
+  if (isCacheValid(cached)) {
+    return cached.rows;
+  }
+
   const conn = await getConnection();
   try {
-    // 1) set the date window in the package
-    // 👇 force Oracle to read the dates in DD-MON-RR
+    // 1) Set the date window in the package
     const plsql = `
       BEGIN
         LHS_UTILITY.SET_FROM_DATE( TO_DATE(:p_from, 'DD-MON-RR') );
@@ -17,40 +47,47 @@ export async function fetchItemStock(fromDate, toDate) {
       p_to: toDate,
     });
 
-    // 2) run your main query
+    // 2) Main query (same logic, thoda clean)
     const sql = `
-      SELECT NVL(ITEM_CODE, 'N.A.') COL1,
-             NVL(LHS_UTILITY.GET_NAME('ITEM_CODE', ITEM_CODE), 'N.A.') COL2,
-             NVL(UM, ' ') COL3,
-             SUM(NVL(YRCLQTY_ENGINE, 0)) COL4,
-             SUM(NVL(YROPAQTY, 0)) COL5
-        FROM VIEW_ITEM_STOCK_ENGINE
-       WHERE ENTITY_CODE = 'SR'
-         AND (
-              (EXISTS (
-                SELECT 1
-                  FROM DUAL
-                 WHERE INSTR('C1 C2 CO F1 F2 F3 PM R1 R2 RM RP SM', div_code) <> 0
-              ))
-              OR div_code IS NULL
-             )
-         AND EXISTS (SELECT 1 FROM DUAL WHERE entity_CODE = 'SR')
-         AND ITEM_NATURE IN ('SI')
-       GROUP BY ITEM_CODE,
-                LHS_UTILITY.GET_NAME('ITEM_CODE', ITEM_CODE),
-                NVL(UM, ' ')
-      HAVING SUM(NVL(YROPAQTY, 0)) > 0
-         AND SUM(NVL(YRCLQTY_ENGINE, 0)) > 0
-       ORDER BY ITEM_CODE,
-                LHS_UTILITY.GET_NAME('ITEM_CODE', ITEM_CODE),
-                NVL(UM, ' ')
+      SELECT
+        NVL(ITEM_CODE, 'N.A.')                               AS COL1,
+        NVL(LHS_UTILITY.GET_NAME('ITEM_CODE', ITEM_CODE), 'N.A.') AS COL2,
+        NVL(UM, ' ')                                         AS COL3,
+        SUM(NVL(YRCLQTY_ENGINE, 0))                          AS COL4,
+        SUM(NVL(YROPAQTY, 0))                                AS COL5
+      FROM VIEW_ITEM_STOCK_ENGINE
+      WHERE ENTITY_CODE = 'SR'
+        AND (
+            div_code IN ('C1','C2','CO','F1','F2','F3','PM','R1','R2','RM','RP','SM')
+            OR div_code IS NULL
+        )
+        AND ITEM_NATURE IN ('SI')
+      GROUP BY
+        ITEM_CODE,
+        LHS_UTILITY.GET_NAME('ITEM_CODE', ITEM_CODE),
+        NVL(UM, ' ')
+      HAVING
+        SUM(NVL(YROPAQTY, 0)) > 0
+        AND SUM(NVL(YRCLQTY_ENGINE, 0)) > 0
+      ORDER BY
+        ITEM_CODE,
+        LHS_UTILITY.GET_NAME('ITEM_CODE', ITEM_CODE),
+        NVL(UM, ' ')
     `;
 
     const result = await conn.execute(sql, [], {
       outFormat: 4002, // oracledb.OUT_FORMAT_OBJECT
     });
 
-    return result.rows ?? [];
+    const rows = result.rows ?? [];
+
+    // ✅ Save to cache
+    stockCache.set(cacheKey, {
+      rows,
+      cachedAt: Date.now(),
+    });
+
+    return rows;
   } finally {
     await conn.close();
   }
