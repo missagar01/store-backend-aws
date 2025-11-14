@@ -1,8 +1,13 @@
+// src/controllers/storeIndent.controller.js
 import * as storeIndentService from "../services/storeIndent.service.js";
 
 export async function createStoreIndent(req, res) {
   try {
     const data = await storeIndentService.create(req.body);
+
+    // data change hone ke baad cache clear
+    storeIndentService.invalidateIndentCaches();
+
     return res.json({ success: true, ...data });
   } catch (err) {
     console.error("createStoreIndent error:", err);
@@ -15,6 +20,10 @@ export async function createStoreIndent(req, res) {
 export async function approveStoreIndent(req, res) {
   try {
     await storeIndentService.approve(req.body);
+
+    // approve ke baad cache clear
+    storeIndentService.invalidateIndentCaches();
+
     return res.json({
       success: true,
       message: "Indent approved successfully",
@@ -29,17 +38,11 @@ export async function approveStoreIndent(req, res) {
 
 export async function getPendingIndents(req, res) {
   try {
-    const page = Number(req.query.page || 1);
-    const pageSize = Number(req.query.pageSize || 50);
-
-    const { rows, total, page: safePage, pageSize: safeSize } =
-      await storeIndentService.getPending(page, pageSize);
+    const rows = await storeIndentService.getPending();
 
     return res.json({
       success: true,
-      page: safePage,
-      pageSize: safeSize,
-      total,
+      total: rows.length,
       data: rows,
     });
   } catch (err) {
@@ -52,17 +55,11 @@ export async function getPendingIndents(req, res) {
 
 export async function getHistory(req, res) {
   try {
-    const page = Number(req.query.page || 1);
-    const pageSize = Number(req.query.pageSize || 50);
-
-    const { rows, total, page: safePage, pageSize: safeSize } =
-      await storeIndentService.getHistory(page, pageSize);
+    const rows = await storeIndentService.getHistory();
 
     return res.json({
       success: true,
-      page: safePage,
-      pageSize: safeSize,
-      total,
+      total: rows.length,
       data: rows,
     });
   } catch (err) {

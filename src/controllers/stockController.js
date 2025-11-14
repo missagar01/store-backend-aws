@@ -38,20 +38,8 @@ function toOracleFromDdMmYyyy(str) {
 
 export async function getStock(req, res) {
   try {
-    let { fromDate, toDate, page, pageSize } = req.query;
-
-    // 🔢 pagination defaults
-    const safePage = Number(page) > 0 ? Number(page) : 1;
-    const safeSize = Number(pageSize) > 0 ? Number(pageSize) : 50;
-
-    // 👉 Optional: Date-range guard (too big range slow hoga)
-    //  e.g. maximum 31 days allowed – agar chahiye to uncomment:
-    //
-    // if (fromDate && toDate) {
-    //   const [fd, fm, fy] = fromDate.split("-"); // DD-MON-RR ya DD-MM-YYYY
-    //   const [td, tm, ty] = toDate.split("-");
-    //   // Yahan aap properly JS Date convert karke range validate kar sakte ho
-    // }
+    // ⬅️ yahan sirf search, fromDate, toDate le rahe hain
+    let { fromDate, toDate, search = "" } = req.query;
 
     // 🗓 Date handling (same logic as before)
     if (!fromDate || !toDate) {
@@ -60,6 +48,7 @@ export async function getStock(req, res) {
       fromDate = toOracleDateFromJs(first);
       toDate = toOracleDateFromJs(now);
     } else {
+      // Frontend se agar "DD-MM-YYYY" aa raha hai
       if (/^\d{2}-\d{2}-\d{4}$/.test(fromDate)) {
         fromDate = toOracleFromDdMmYyyy(fromDate);
       }
@@ -70,21 +59,30 @@ export async function getStock(req, res) {
 
     // 🔹 1) Get full rows for this date window (with cache)
     const rows = await fetchItemStock(fromDate, toDate);
-    const total = rows.length;
 
-    // 🔹 2) Node-side pagination (50-50)
-    const startIndex = (safePage - 1) * safeSize;
-    const endIndex = Math.min(startIndex + safeSize, total);
-    const pagedRows = rows.slice(startIndex, endIndex);
+    // 🔍 2) Global search on COL1 / COL2 / COL3
+    const q = (search || "").trim().toLowerCase();
+    let filtered = rows;
 
+    if (q) {
+      filtered = rows.filter((r) => {
+        const c1 = (r.COL1 || "").toLowerCase(); // ITEM_CODE
+        const c2 = (r.COL2 || "").toLowerCase(); // ITEM_NAME
+        const c3 = (r.COL3 || "").toLowerCase(); // UOM
+        return c1.includes(q) || c2.includes(q) || c3.includes(q);
+      });
+    }
+
+    const total = filtered.length;
+
+    // ❌ No pagination: send all filtered rows
     res.json({
       success: true,
       fromDate,
       toDate,
-      page: safePage,
-      pageSize: safeSize,
       total,
-      data: pagedRows,
+      search: q, // optional, debug ke liye
+      data: filtered,
     });
   } catch (err) {
     console.error("getStock error:", err);

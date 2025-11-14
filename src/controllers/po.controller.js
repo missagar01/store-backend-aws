@@ -3,17 +3,13 @@ import * as poService from "../services/po.service.js";
 
 export async function getPoPending(req, res) {
   try {
-    const page = Number(req.query.page || 1);
-    const pageSize = Number(req.query.pageSize || 50);
-
-    const { rows, total } = await poService.getPoPending(page, pageSize);
+    // backend pagination removed – full list
+    const { rows, total } = await poService.getPoPending();
 
     return res.json({
       success: true,
-      page,
-      pageSize,
-      total,      // total rows in DB (all pages)
-      data: rows, // current page rows
+      total,
+      data: rows,
     });
   } catch (err) {
     console.error("getPoPending error:", err);
@@ -25,15 +21,10 @@ export async function getPoPending(req, res) {
 
 export async function getPoHistory(req, res) {
   try {
-    const page = Number(req.query.page || 1);
-    const pageSize = Number(req.query.pageSize || 50);
-
-    const { rows, total } = await poService.getPoHistory(page, pageSize);
+    const { rows, total } = await poService.getPoHistory();
 
     return res.json({
       success: true,
-      page,
-      pageSize,
       total,
       data: rows,
     });
