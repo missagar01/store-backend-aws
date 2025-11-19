@@ -10,6 +10,7 @@ import itemRoutes from "./item.routes.js";
 import userRoutes from "./user.routes.js";
 import uomRoutes from "./uom.routes.js";
 import costLocationRoutes from "./costLocation.routes.js";
+import indentRoutes from "./indent.routes.js";
 
 import stockRoutes from "./stockRoutes.js";
 
@@ -17,6 +18,7 @@ const router = Router();
 
 router.use("/user", userRoutes);
 router.use("/store-indent", storeIndentRoutes);
+router.use("/indent", indentRoutes);
 router.use("/vendor-rate-update", vendorRateUpdateRoutes);
 router.use("/three-party-approval", threePartyApprovalRoutes);
 router.use("/po", poRoutes);

@@ -8,7 +8,6 @@
     "start": "node ./src/server.js",
     "dev": "nodemon --watch src ./src/server.js",
     "main": "src/server.js"
-
   },
   "author": "Your Name",
   "license": "MIT",
@@ -20,6 +19,7 @@
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
     "oracledb": "^6.9.0",
+    "pg": "^8.16.3",
     "redis": "^5.9.0",
     "swagger-ui-express": "^5.0.1"
   },
