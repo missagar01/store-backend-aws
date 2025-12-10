@@ -1,28 +1,22 @@
-import { supabase } from "../config/supabaseClient.js";
+import { getPgConnection } from "../config/auth.js"; // Corrected path to PG connection utility
 
-export async function supabaseHealth(req, res) {
+export async function pgHealth(req, res) {
+  let client;
   try {
-    const usersTable = process.env.SUPABASE_USERS_TABLE;
-    if (!usersTable) {
-      return res.status(400).json({
-        ok: false,
-        error: "SUPABASE_USERS_TABLE not configured",
-      });
-    }
-
-    const { error, count } = await supabase
-      .from(usersTable)
-      .select("*", { count: "exact", head: true });
-
-    if (error) {
-      return res.status(500).json({ ok: false, error: error.message });
-    }
-
-    return res.json({ ok: true, table: usersTable, count: count ?? 0 });
+    client = await getPgConnection();
+    // Perform a simple query to check database connectivity
+    await client.query('SELECT 1');
+    return res.json({ ok: true, message: "PostgreSQL database is healthy." });
   } catch (err) {
-    return res.status(500).json({ ok: false, error: err.message });
+    console.error('[pgHealth] PostgreSQL health check failed:', err);
+    return res.status(500).json({ ok: false, error: err.message || "PostgreSQL database is unhealthy." });
+  } finally {
+    if (client) {
+      try {
+        client.release();
+      } catch (releaseErr) {
+        console.error('[pgHealth] Error releasing PostgreSQL client:', releaseErr);
+      }
+    }
   }
 }
-
-
-

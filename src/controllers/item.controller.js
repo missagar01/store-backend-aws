@@ -1,24 +1,26 @@
-import { getStoreIndentItems } from "../services/item.service.js";
+import * as itemService from "../services/item.service.js";
 
+/**
+ * Controller to get active store indent items.
+ * Handles request and response logic.
+ */
 export async function getItems(req, res) {
   try {
-    const result = await getStoreIndentItems();
-    
-    // Return empty array if no items found
-    if (!result?.data?.length) {
-      return res.json({ 
-        success: true, 
-        data: [],
-        message: "No active store indent items found"
-      });
-    }
+    const result = await itemService.getStoreIndentItems();
 
-    return res.json(result);
+    if (result.success) {
+      res.status(200).json(result);
+    } else {
+      // If the service handled the error and returned a specific message
+      res.status(500).json({ success: false, error: result.error });
+    }
   } catch (err) {
-    console.error('[getItems] Controller error:', err);
-    return res.status(500).json({ 
-      success: false, 
-      error: "Failed to fetch store indent items"
-    });
+    console.error('[getItems] Unhandled error:', err);
+    res.status(500).json({ success: false, error: "An internal server error occurred." });
   }
 }
+
+/**
+ * Controller to get unique store indent item categories.
+ */
+

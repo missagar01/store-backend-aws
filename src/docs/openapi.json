@@ -12,19 +12,24 @@
   "paths": {
     "/auth/login": {
       "post": {
-        "summary": "Login using Supabase users table (user_name + employee_id + password)",
+        "summary": "Login using AWS RDS PostgreSQL 'users' table (user_name + employee_id + password)",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "type": "object",
+                "description": "Requires 'password' and either 'user_name' or 'employee_id'.",
                 "properties": {
                   "user_name": { "type": "string" },
                   "employee_id": { "type": "string" },
                   "password": { "type": "string" }
                 },
-                "required": ["user_name", "employee_id", "password"]
+                "required": ["password"],
+                "oneOf": [
+                  { "required": ["user_name"] },
+                  { "required": ["employee_id"] }
+                ]
               },
               "example": { "user_name": "admin", "employee_id": "EMP001", "password": "admin1234" }
             }
@@ -39,5 +44,3 @@
   },
   "components": {}
 }
-
-

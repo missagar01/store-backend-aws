@@ -24,7 +24,7 @@ export async function getPoPending() {
         AND t.series = 'U3'
         AND t.qtycancelled IS NULL
         AND (t.qtyorder - t.qtyexecute) > 0
-        AND t.vrdate >= TRUNC(SYSDATE - 209)
+        AND t.vrdate >= '01-apr-2025'
       ORDER BY t.vrdate DESC, t.vrno DESC
     `;
 
@@ -62,7 +62,7 @@ export async function getPoHistory() {
       WHERE t.entity_code = 'SR'
         AND t.series = 'U3'
         AND t.qtycancelled IS NULL
-        AND t.vrdate >= TRUNC(SYSDATE - 209)
+        AND t.vrdate >= '01-apr-2025'
         AND (
           (t.qtyorder - t.qtyexecute) = 0
           OR (t.qtyorder - t.qtyexecute) > t.qtyorder

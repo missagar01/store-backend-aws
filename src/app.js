@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import routes from "./routes/index.js";
+import authRoutes from "./routes/auth.routes.js"; // Import new auth routes
 import swaggerUi from "swagger-ui-express";
 import fs from "fs";
 import path from "path";
@@ -16,7 +17,9 @@ app.use(express.json());
 app.use(cors());
 
 // ✅ Main routes
+app.use("/auth", authRoutes); // Mount authentication routes
 app.use("/", routes);
+app.use("/api", routes);
 
 // ✅ Swagger setup (startup-only, no work per request)
 const __filename = fileURLToPath(import.meta.url);

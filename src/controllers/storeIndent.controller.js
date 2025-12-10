@@ -69,3 +69,15 @@ export async function getHistory(req, res) {
       .json({ success: false, error: err.message || "Internal server error" });
   }
 }
+
+export async function getDashboard(req, res) {
+  try {
+    const data = await storeIndentService.getDashboardMetrics();
+    return res.json({ success: true, data });
+  } catch (err) {
+    console.error("getDashboard error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: err.message || "Internal server error" });
+  }
+}

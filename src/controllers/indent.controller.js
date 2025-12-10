@@ -21,7 +21,11 @@ function pickStatusCode(err, notFoundStatus = 404) {
 
 export async function submitIndent(req, res) {
   try {
-    const record = await createIndent(req.body);
+    const payload = {
+      ...req.body,
+      group_name: req.body.group_name ?? req.body.groupName ?? null,
+    };
+    const record = await createIndent(payload);
     return res.status(201).json({
       success: true,
       data: record,
@@ -68,13 +72,16 @@ export async function listIndents(req, res) {
   try {
     const statusParam = req.query.status;
     const hasStatusParam = typeof statusParam === "string" && statusParam.trim().length > 0;
-    const rows = await fetchIndents(
-      hasStatusParam ? { status: statusParam } : { statuses: ["PENDING"] }
-    );
+    const queryOptions = { ...req.query };
+    if (!hasStatusParam) {
+      queryOptions.statuses = ["PENDING"];
+    }
+    const { rows, pagination } = await fetchIndents(queryOptions);
     return res.json({
       success: true,
       total: rows.length,
       data: rows,
+      pagination,
     });
   } catch (err) {
     console.error("listIndents error:", err);
@@ -86,19 +93,39 @@ export async function listIndents(req, res) {
   }
 }
 
-export async function listAllIndents(_req, res) {
+export async function listAllIndents(req, res) {
   try {
-    const rows = await fetchIndents();
+    const { rows, pagination } = await fetchIndents({ ...req.query });
     return res.json({
       success: true,
       total: rows.length,
       data: rows,
+      pagination,
     });
   } catch (err) {
     console.error("listAllIndents error:", err);
     return res.status(500).json({
       success: false,
       error: err.message || "Failed to fetch indents",
+    });
+  }
+}
+
+export async function filterIndents(req, res) {
+  try {
+    const { rows, pagination } = await fetchIndents({ ...req.query });
+    return res.json({
+      success: true,
+      total: rows.length,
+      data: rows,
+      pagination,
+    });
+  } catch (err) {
+    console.error("filterIndents error:", err);
+    const status = pickStatusCode(err, 400);
+    return res.status(status).json({
+      success: false,
+      error: err.message || "Failed to filter indents",
     });
   }
 }
@@ -128,36 +155,38 @@ export async function getIndent(req, res) {
   }
 }
 
-export async function listApprovedIndents(_req, res) {
+export async function listIndentsByStatus(req, res) {
   try {
-    const rows = await fetchIndents({ statuses: ["APPROVED"] });
-    return res.json({
-      success: true,
-      total: rows.length,
-      data: rows,
-    });
-  } catch (err) {
-    console.error("listApprovedIndents error:", err);
-    return res.status(500).json({
-      success: false,
-      error: err.message || "Failed to fetch approved indents",
-    });
-  }
-}
+    const statusType = req.params.statusType; // Get status from URL parameter
+    let statusesToFetch = [];
 
-export async function listRejectedIndents(_req, res) {
-  try {
-    const rows = await fetchIndents({ statuses: ["REJECTED"] });
+    if (statusType.toLowerCase() === "approved") {
+      statusesToFetch = ["APPROVED"];
+    } else if (statusType.toLowerCase() === "rejected") {
+      statusesToFetch = ["REJECTED"];
+    } else {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid status type. Must be 'approved' or 'rejected'.",
+      });
+    }
+
+    const { status: _status, ...paginationQuery } = req.query;
+    const { rows, pagination } = await fetchIndents({
+      statuses: statusesToFetch,
+      ...paginationQuery,
+    });
     return res.json({
       success: true,
       total: rows.length,
       data: rows,
+      pagination,
     });
   } catch (err) {
-    console.error("listRejectedIndents error:", err);
+    console.error("listIndentsByStatus error:", err);
     return res.status(500).json({
       success: false,
-      error: err.message || "Failed to fetch rejected indents",
+      error: err.message || "Failed to fetch indents by status",
     });
   }
 }

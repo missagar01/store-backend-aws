@@ -1,11 +1,8 @@
 import { Router } from "express";
-import { supabaseHealth } from "../controllers/health.controller.js";
+import { pgHealth } from "../controllers/health.controller.js";
 
 const router = Router();
 
-router.get("/supabase", supabaseHealth);
+router.get("/pg", pgHealth); // New route for PostgreSQL health check
 
 export default router;
-
-
-

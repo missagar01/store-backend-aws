@@ -13,6 +13,28 @@ Prerequisites
   `PG_PASSWORD`, `PG_DATABASE`, `PG_SSL=true`)
 - Run `npm install` so the `pg` driver is present
 
+## Authentication APIs
+
+### 1. User Login – `POST /auth/login`
+Authenticates a user against the `users` table in the AWS RDS PostgreSQL database.
+
+**Request body**
+```json
+{
+  "user_name": "john.doe",  // OR "employee_id": "EMP123"
+  "password": "securepassword123"
+}
+```
+
+**Success response (200)**
+```json
+{
+  "success": true,
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": { "id": 1, "user_name": "john.doe", "employee_id": "EMP123", "role": "user" }
+}
+```
+
 Scripts
 -------
 - `npm start` – runs `src/server.js`
@@ -24,6 +46,8 @@ Indent APIs
 ### 1. Submit Indent – `POST /indent`
 Creates a new indent entry. `form_type` decides the auto-generated `request_number`
 prefix (`IND01`, `IND02`, … for INDENT; `REQ01`, `REQ02`, … for REQUISITION).
+The request body may now include `group_name` (or `groupName`) so the backend can
+persist the item’s group along with the indent row.
 
 **Request body**
 ```json
@@ -40,6 +64,7 @@ prefix (`IND01`, `IND02`, … for INDENT; `REQ01`, `REQ02`, … for REQUISITION)
   "uom": "NOS",
   "specification": "CDP model with digital board",
   "make": "ABB",
+  "group_name": "Drive Assemblies",
   "purpose": "Production line 2",
   "cost_location": "PLANT-A",
   "planned_2": "2025-02-20",
@@ -102,6 +127,68 @@ change.
 ```json
 { "success": false, "error": "Invalid request_status" }
 ```
+### 3. Filter Indents – GET /indent/filter
+Filters indents by optional date range, product name, and status.
+
+**Query params**
+- `fromDate` / `from_date` (YYYY-MM-DD, optional) – inclusive lower bound on sample_timestamp
+- `toDate` / `to_date` (YYYY-MM-DD, optional) – inclusive upper bound on sample_timestamp
+- `productName` / `product_name` (string, optional) – case-insensitive substring match
+- `requesterName` / `requester_name` (string, optional) – case-insensitive substring match
+- `status` / `statuses` (comma-separated list or array, optional) – request_status filter
+
+**Example**
+`GET /indent/filter?fromDate=2025-11-01&toDate=2025-11-15&productName=cement&requesterName=Rahul&status=APPROVED`
+
+**Success response (200)**
+```json
+{
+  "success": true,
+  "total": 2,
+  "data": [
+    {
+      "request_number": "IND05",
+      "sample_timestamp": "2025-11-04T10:05:00.000Z",
+      "product_name": "Cement Grade 43",
+      "request_status": "APPROVED",
+      "...": "other columns"
+    }
+  ]
+}
+
+### 4. List Indents by Status – `GET /indent/status/:statusType`
+Retrieves a list of indents filtered by their `request_status`.
+
+**Path Parameters**
+- `:statusType` (string, required) – The status to filter by. Valid values are `approved` or `rejected`.
+
+**Examples**
+- `GET http://localhost:3004/indent/status/approved`
+- `GET http://localhost:3004/indent/status/rejected`
+
+**Success response (200)**
+```json
+{
+  "success": true,
+  "total": 1,
+  "data": [
+    {
+      "request_number": "IND03",
+      "sample_timestamp": "2025-11-04T10:05:00.000Z",
+      "product_name": "Cement Grade 43",
+      "request_status": "APPROVED",
+      "...": "other columns"
+    }
+  ]
+}
+
+
+### Pagination support for list endpoints
+The various `GET /indent` endpoints now accept `limit` and `offset` query parameters so the frontend can implement infinite scrolling.
+- `limit` (number, optional) – how many rows to return; defaults to `100` and is capped at `500`.
+- `offset` (number, optional) – zero-based row offset; defaults to `0`.
+
+Responses include a `pagination` object that exposes the actual `limit`, `offset`, `hasMore`, and `nextOffset` values for the caller to know whether to fetch another page.
 
 If the `request_number` doesn’t exist, the service returns a 404 with
 `{ "success": false, "error": "Indent with request_number … not found" }`.

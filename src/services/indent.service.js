@@ -8,6 +8,9 @@ const ADVISORY_LOCK_KEYS = {
   REQUISITION: 19102,
 };
 
+const DEFAULT_PAGE_LIMIT = 100;
+const MAX_PAGE_LIMIT = 500;
+
 function normalizeTimestamp(input, fallback = null) {
   if (input === undefined || input === null || input === "") return fallback;
   const date = new Date(input);
@@ -41,6 +44,28 @@ function toNumberOrNull(input) {
   if (input === undefined || input === null || input === "") return null;
   const num = Number(input);
   return Number.isFinite(num) ? num : null;
+}
+
+function normalizePaginationLimit(input) {
+  if (input === undefined || input === null || input === "") {
+    return DEFAULT_PAGE_LIMIT;
+  }
+  const candidate = Number(input);
+  if (!Number.isFinite(candidate)) {
+    return DEFAULT_PAGE_LIMIT;
+  }
+  return Math.min(MAX_PAGE_LIMIT, Math.max(1, Math.floor(candidate)));
+}
+
+function normalizePaginationOffset(input) {
+  if (input === undefined || input === null || input === "") {
+    return 0;
+  }
+  const candidate = Number(input);
+  if (!Number.isFinite(candidate)) {
+    return 0;
+  }
+  return Math.max(0, Math.floor(candidate));
 }
 
 function hasField(obj, ...keys) {
@@ -120,6 +145,7 @@ export async function createIndent(formPayload) {
         make,
         purpose,
         cost_location,
+        group_name,
         planned_1,
         request_status
       )
@@ -127,7 +153,7 @@ export async function createIndent(formPayload) {
         $1, $2, $3, $4, $5,
         $6, $7, $8, $9, $10,
         $11, $12, $13, $14, $15,
-        $16, $17
+        $16, $17, $18
       )
       RETURNING *
     `;
@@ -148,6 +174,7 @@ export async function createIndent(formPayload) {
       formPayload.make ?? null,
       formPayload.purpose ?? null,
       formPayload.cost_location ?? formPayload.costLocation ?? null,
+      formPayload.group_name ?? formPayload.groupName ?? null,
       planned1,
       "PENDING",
     ];
@@ -318,6 +345,23 @@ async function applyUpdateToRow(client, existing, updates) {
 
 export async function fetchIndents(options = {}) {
   const { status, statuses } = options;
+  const limitCandidate =
+    options.limit ??
+    options.pageSize ??
+    options.page_size ??
+    options.pageLimit ??
+    options.page_limit ??
+    null;
+  const offsetCandidate =
+    options.offset ??
+    options.page ??
+    options.page_offset ??
+    options.pageOffset ??
+    options.cursor ??
+    options.start ??
+    null;
+  const limit = normalizePaginationLimit(limitCandidate);
+  const offset = normalizePaginationOffset(offsetCandidate);
 
   return withPgClient(async (client) => {
     const whereParts = [];
@@ -350,6 +394,48 @@ export async function fetchIndents(options = {}) {
       values.push(...cleanedStatuses);
     }
 
+    const fromDateRaw =
+      options.fromDate ??
+      options.from_date ??
+      options.startDate ??
+      options.start_date ??
+      null;
+    const toDateRaw =
+      options.toDate ??
+      options.to_date ??
+      options.endDate ??
+      options.end_date ??
+      null;
+
+    const fromDate = normalizeDateOnly(fromDateRaw);
+    const toDate = normalizeDateOnly(toDateRaw);
+
+    if (fromDate) {
+      whereParts.push(`sample_timestamp >= $${paramIndex}::date`);
+      values.push(fromDate);
+      paramIndex += 1;
+    }
+
+    if (toDate) {
+      whereParts.push(`sample_timestamp < ($${paramIndex}::date + INTERVAL '1 day')`);
+      values.push(toDate);
+      paramIndex += 1;
+    }
+
+    const productNameRaw = options.productName ?? options.product_name ?? null;
+    if (productNameRaw && String(productNameRaw).trim().length) {
+      whereParts.push(`product_name ILIKE $${paramIndex}`);
+      values.push(`%${String(productNameRaw).trim()}%`);
+      paramIndex += 1;
+    }
+
+    const requesterNameRaw = options.requesterName ?? options.requester_name ?? null;
+    if (requesterNameRaw && String(requesterNameRaw).trim().length) {
+      whereParts.push(`requester_name ILIKE $${paramIndex}`);
+      values.push(`%${String(requesterNameRaw).trim()}%`);
+      paramIndex += 1;
+    }
+
     const sql = `
       SELECT *
       FROM indent
@@ -357,8 +443,30 @@ export async function fetchIndents(options = {}) {
       ORDER BY created_at DESC
     `;
 
-    const { rows } = await client.query(sql, values);
-    return rows;
+    const limitParamIndex = paramIndex;
+    paramIndex += 1;
+    const offsetParamIndex = paramIndex;
+    paramIndex += 1;
+    const paginatedSql = `
+      ${sql}
+      LIMIT $${limitParamIndex}
+      OFFSET $${offsetParamIndex}
+    `;
+    values.push(limit + 1);
+    values.push(offset);
+
+    const { rows } = await client.query(paginatedSql, values);
+    const hasMore = rows.length > limit;
+    const paginatedRows = hasMore ? rows.slice(0, limit) : rows;
+    return {
+      rows: paginatedRows,
+      pagination: {
+        limit,
+        offset,
+        hasMore,
+        nextOffset: offset + limit,
+      },
+    };
   });
 }
 

@@ -1,42 +1,43 @@
 // services/user.service.js
-import { supabase } from "../config/supabaseClient.js";
-
-const USERS_TABLE = process.env.SUPABASE_USERS_TABLE || "users";
-const EMPLOYEE_ID_COL = process.env.SUPABASE_USERS_EMPLOYEE_ID_COLUMN || "employee_id";
-const USERNAME_COL = process.env.SUPABASE_USERS_USERNAME_COLUMN || "user_name";
-const USER_ACCESS_COL = process.env.SUPABASE_USERS_ACCESS_COLUMN || "user_access";
+import { getPgConnection } from "../config/auth.js"; // Corrected path to PG connection utility
 
 /**
- * Fetch user basic info from Supabase table by employee_id.
- * Returns { ok: true, user } OR { ok: false, reason }
+ * Fetch user basic info from PostgreSQL 'users' table by employee_id.
+ * @param {string} employeeId - The employee ID to look up.
+ * @returns {Promise<{ ok: boolean, user?: object, reason?: string }>}
  */
 export async function getUserByEmployeeId(employeeId) {
   if (!employeeId) {
     return { ok: false, reason: "missing_employee_id" };
   }
-
-  const { data, error } = await supabase
-    .from(USERS_TABLE)
-    .select(`${USERNAME_COL}, ${USER_ACCESS_COL}, ${EMPLOYEE_ID_COL}`)
-    .eq(EMPLOYEE_ID_COL, employeeId)
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    // forward error up
-    throw new Error(error.message);
+  let client;
+  try {
+    client = await getPgConnection();
+    const queryText = `
+      SELECT user_name, employee_id, role
+      FROM users
+      WHERE employee_id = $1
+      LIMIT 1;
+    `;
+    const result = await client.query(queryText, [employeeId]);
+    if (result.rows.length === 0) {
+      return { ok: false, reason: "not_found" };
+    }
+    const user = result.rows[0];
+    return {
+      ok: true,
+      user: {
+        employee_id: user.employee_id,
+        user_name: user.user_name,
+        user_access: user.role, // Assuming 'role' in PG maps to 'user_access'
+      },
+    };
+  } catch (error) {
+    console.error('[user.service.js] Error fetching user by employee ID:', error);
+    throw new Error(error.message || "Failed to fetch user data.");
+  } finally {
+    if (client) {
+      client.release();
+    }
   }
-
-  if (!data) {
-    return { ok: false, reason: "not_found" };
-  }
-
-  return {
-    ok: true,
-    user: {
-      employee_id: data[EMPLOYEE_ID_COL],
-      user_name: data[USERNAME_COL],
-      user_access: data[USER_ACCESS_COL],
-    },
-  };
 }
