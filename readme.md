@@ -39,6 +39,7 @@ Scripts
 -------
 - `npm start` – runs `src/server.js`
 - `npm run dev` – nodemon watcher for development
+- `npm install` – required after `package.json` changes (new `exceljs` dependency for exports)
 
 Indent APIs
 -----------
@@ -192,6 +193,21 @@ Responses include a `pagination` object that exposes the actual `limit`, `offset
 
 If the `request_number` doesn’t exist, the service returns a 404 with
 `{ "success": false, "error": "Indent with request_number … not found" }`.
+
+Download APIs
+-------------
+Four authenticated download endpoints now stream the full pending/history data as Excel (`.xlsx`) attachments:
+
+- `GET /po/pending/download`
+  - Streams the pending PO list (`view_order_engine` filters) with planned timestamp, vendor, item, qty, and balance columns.
+- `GET /po/history/download`
+  - Streams the complete PO history (executed qty is zero or exceeds order qty) with the same columns minus balance.
+- `GET /store-indent/pending/download`
+  - Exports pending indents (no PO assigned yet) with division, consumer, item, quantity, cost project, and specification metadata.
+- `GET /store-indent/history/download`
+  - Exports indents that already generated POs; includes PO number, PO qty, and cancellation metadata.
+
+Each download endpoint requires the usual authentication token (same as `/auth/login`). The response headers include `Content-Disposition` so browsers and CLI tools will prompt/save `po-pending-<timestamp>.xlsx`, `po-history-<timestamp>.xlsx`, etc.
 
 Testing / Verification
 ----------------------

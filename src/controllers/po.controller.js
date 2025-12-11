@@ -1,5 +1,55 @@
 // src/controllers/po.controller.js
 import * as poService from "../services/po.service.js";
+import {
+  buildDownloadFilename,
+  sendRowsAsExcel,
+} from "../utils/excel.helper.js";
+
+const poBaseColumns = [
+  { header: "PO No.", key: "VRNO", width: 16 },
+  { header: "S.No", key: "S_NO", width: 8 },
+  { header: "Planned Time Stamp", key: "PLANNED_TIMESTAMP", width: 22 },
+  { header: "PO Date", key: "VRDATE", width: 16 },
+  { header: "Vendor Name", key: "VENDOR_NAME", width: 32 },
+  { header: "Item Name", key: "ITEM_NAME", width: 32 },
+  { header: "UOM", key: "UM", width: 10 },
+  { header: "Ordered Qty", key: "QTYORDER", width: 16 },
+  { header: "Executed Qty", key: "QTYEXECUTE", width: 18 },
+];
+
+const poPendingDownloadColumns = [
+  ...poBaseColumns,
+  { header: "Balance Qty", key: "BALANCE_QTY", width: 18 },
+];
+
+const poHistoryDownloadColumns = [
+  ...poBaseColumns,
+  { header: "Balance Qty", key: "BALANCE_QTY", width: 18 },
+];
+
+function buildPoFilename(type) {
+  return buildDownloadFilename(`po-${type}`);
+}
+
+function annotatePoRows(rows = []) {
+  return rows.map((row, index) => {
+    const orderQty = Number(row.QTYORDER ?? row.qtyorder ?? 0);
+    const executeQty = Number(row.QTYEXECUTE ?? row.qtyexecute ?? 0);
+    const existingBalance =
+      row.BALANCE_QTY ?? row.balance_qty ?? row.balanceqty;
+    const balance =
+      existingBalance ??
+      (Number.isFinite(orderQty) && Number.isFinite(executeQty)
+        ? orderQty - executeQty
+        : undefined);
+
+    return {
+      ...row,
+      S_NO: index + 1,
+      BALANCE_QTY: balance,
+    };
+  });
+}
 
 export async function getPoPending(req, res) {
   try {
@@ -30,6 +80,42 @@ export async function getPoHistory(req, res) {
     });
   } catch (err) {
     console.error("getPoHistory error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: err.message || "Internal server error" });
+  }
+}
+
+export async function downloadPoPending(req, res) {
+  try {
+    const { rows = [] } = await poService.getPoPending();
+    const preparedRows = annotatePoRows(rows);
+    await sendRowsAsExcel(res, {
+      rows: preparedRows,
+      columns: poPendingDownloadColumns,
+      sheetName: "Pending PO",
+      fileName: buildPoFilename("pending"),
+    });
+  } catch (err) {
+    console.error("downloadPoPending error:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: err.message || "Internal server error" });
+  }
+}
+
+export async function downloadPoHistory(req, res) {
+  try {
+    const { rows = [] } = await poService.getPoHistory();
+    const preparedRows = annotatePoRows(rows);
+    await sendRowsAsExcel(res, {
+      rows: preparedRows,
+      columns: poHistoryDownloadColumns,
+      sheetName: "PO History",
+      fileName: buildPoFilename("history"),
+    });
+  } catch (err) {
+    console.error("downloadPoHistory error:", err);
     return res
       .status(500)
       .json({ success: false, error: err.message || "Internal server error" });
