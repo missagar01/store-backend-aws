@@ -13,8 +13,6 @@ import { authenticate } from "../middlewares/auth.middleware.js";
 
 const router = Router();
 
-
-
 router.post("/", createStoreIndent);
 router.put("/approve", approveStoreIndent);
 router.get("/pending", authenticate, getPendingIndents);
